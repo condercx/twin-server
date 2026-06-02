@@ -1,4 +1,28 @@
-cert.pem
-key.pem
+# Binaries
 *.exe
-.test/
+*.exe~
+*.dll
+*.so
+*.dylib
+twin-server
+twin-server-*
+testclient/testclient
+testclient/testclient.exe
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.pem
+*.crt
+*.key
+# TLS certs
+*.pem
+*.crt
+*.key

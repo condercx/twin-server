@@ -12,12 +12,26 @@ import (
 	twin "github.com/condercx/twin-go"
 )
 
+var version = "dev"
+
 func main() {
 	listen := flag.String("listen", ":8443", "listen address")
 	password := flag.String("password", "", "auth password")
 	certFile := flag.String("cert", "", "TLS cert file")
 	keyFile := flag.String("key", "", "TLS key file")
+	confFile := flag.String("conf", "", "config file path")
+	showVersion := flag.Bool("version", false, "show version")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+
+	if *confFile != "" {
+		runWithConfig(*confFile)
+		return
+	}
 
 	if *password == "" {
 		fmt.Println("error: --password is required")
@@ -56,3 +70,10 @@ func main() {
 
 	<-make(chan struct{})
 }
+
+func runWithConfig(path string) {
+	fmt.Printf("loading config from %s ...\n", path)
+	fmt.Println("config file support coming soon")
+	os.Exit(1)
+}
+
