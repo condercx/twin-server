@@ -1,6 +1,6 @@
 # twin-server
 
-Twin protocol server implementation. Based on reverse-engineered nowhere protocol ? optimized for high-throughput, low-QoS proxy over UDP.
+Twin protocol server implementation. Optimized for high-throughput, low-QoS proxy over UDP.
 
 ## Quick Install
 
@@ -97,17 +97,18 @@ userdel -r twin
 ## Clash Client Config
 
 ```yaml
-- name: "twin"
-  type: twin
-  server: your-server.com
-  port: 8443
-  password: your-password
-  sni: bing.com
-  skip-cert-verify: true
-  up: "100 Mbps"
-  down: "200 Mbps"
-  side-channel: true
-  side-strategy: auto
+  - name: "twin-example"
+    type: twin
+    server: 107.172.231.81
+    port: 8833
+    password: Qq9870219
+    udp: true
+    up: "1200 Mbps"
+    down: "1200 Mbps"
+    sni: www.bing.com
+    skip-cert-verify: true
+    side-channel: true
+    side-strategy: auto
 ```
 
 ## Build from Source
