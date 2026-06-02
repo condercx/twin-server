@@ -3,8 +3,8 @@
 # install_server.sh - twin-server install script
 #
 # Usage:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh)
-#   bash <(curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh) --remove
+#   curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh | bash -s --
+#   curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh | bash -s -- --remove
 #
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -27,8 +27,8 @@ main() {
       -l|--local) LOCAL_FILE="$2"; shift 2; break ;;
       -h|--help)
         echo "Usage:"
-        echo "  Install:  bash <(curl -fsSL $RAW_URL)"
-        echo "  Remove:   bash <(curl -fsSL $RAW_URL) --remove"
+        echo "  Install:  curl -fsSL $RAW_URL | bash -s --"
+        echo "  Remove:   curl -fsSL $RAW_URL | bash -s -- --remove"
         echo "  Options:"
         echo "    -l <file>   Install from local binary file"
         echo "    -f          Force reinstall"
@@ -167,7 +167,7 @@ EOS
   echo "  Restart: systemctl restart twin-server"
   echo "  Logs:    journalctl -u twin-server -f"
   echo ""
-  echo "  Remove:  bash <(curl -fsSL $RAW_URL) --remove"
+  echo "  Remove:  curl -fsSL $RAW_URL | bash -s -- --remove"
   echo ""
 }
 

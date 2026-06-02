@@ -5,7 +5,7 @@ Twin protocol server implementation. Optimized for high-throughput, low-QoS prox
 ## Quick Install
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh)
+curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh | bash -s --
 ```
 
 This will:
@@ -79,7 +79,7 @@ journalctl -u twin-server -f      # Follow logs
 ## Remove
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh) --remove
+curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh | bash -s -- --remove
 ```
 
 Or manually:
