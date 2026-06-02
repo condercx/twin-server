@@ -3,9 +3,12 @@
 # install_server.sh - twin-server install script
 # Usage:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh)
-#   bash install_server.sh --remove
+#   bash <(curl -fsSL https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh) --remove
 #
-set -e
+# SPDX-License-Identifier: MIT
+#
+
+set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 
@@ -22,19 +25,19 @@ LOCAL_FILE=
 
 has_command() { type -P "$1" > /dev/null 2>&1; }
 
-curl() { command curl "${CURL_FLAGS[@]}" "$@"; }
-
+curl()  { command curl "${CURL_FLAGS[@]}" "$@"; }
 mktemp() { command mktemp "$@" "/tmp/twinservinst.XXXXXXXXXX"; }
 
-tred() { tput setaf 1; }
-tgreen() { tput setaf 2; }
-tyellow() { tput setaf 3; }
-tbold() { tput bold; }
-treset() { tput sgr0; }
+# Color helpers ? safe even when tput is missing
+red()    { [[ -n "${NO_COLOR:-}" ]] && return; has_command tput && tput setaf 1 || true; }
+green()  { [[ -n "${NO_COLOR:-}" ]] && return; has_command tput && tput setaf 2 || true; }
+yellow() { [[ -n "${NO_COLOR:-}" ]] && return; has_command tput && tput setaf 3 || true; }
+bold()   { [[ -n "${NO_COLOR:-}" ]] && return; has_command tput && tput bold || true; }
+reset()  { [[ -n "${NO_COLOR:-}" ]] && return; has_command tput && tput sgr0 || true; }
 
-note()  { echo -e "$SCRIPT_NAME: $(tbold)note: $1$(treset)"; }
-warning() { echo -e "$SCRIPT_NAME: $(tyellow)warning: $1$(treset)"; }
-error()  { echo -e "$SCRIPT_NAME: $(tred)error: $1$(treset)"; }
+note()    { echo -e "$(bold)note:$(reset) $1"; }
+warning() { echo -e "$(yellow)warning:$(reset) $1"; }
+error()   { echo -e "$(red)error:$(reset) $1" >&2; }
 
 is_user_exists() { id "$1" > /dev/null 2>&1; }
 
@@ -52,7 +55,6 @@ detect_package_manager() {
   else
     return 1
   fi
-  return 0
 }
 
 install_software() {
@@ -65,20 +67,21 @@ install_software() {
 
 show_usage_and_exit() {
   echo
-  echo -e "Usage:"
-  echo -e "  Install:  bash <(curl -fsSL $RAW_URL)"
-  echo -e "  Remove:   bash <(curl -fsSL $RAW_URL) --remove"
+  echo "Usage:"
+  echo "  Install:  bash <(curl -fsSL $RAW_URL)"
+  echo "  Remove:   bash <(curl -fsSL $RAW_URL) --remove"
   echo
-  echo -e "Flags:"
-  echo -e "  -l <file>  Install from local file"
-  echo -e "  -f         Force reinstall"
-  echo -e "  --remove   Remove twin-server"
+  echo "Flags:"
+  echo "  -l <file>   Install from local file"
+  echo "  -f          Force reinstall"
+  echo "  --remove    Remove twin-server"
+  echo "  -h, --help  Show this help"
   echo
   exit 0
 }
 
 parse_arguments() {
-  while [[ "$#" -gt "0" ]]; do
+  while [[ $# -gt 0 ]]; do
     case "$1" in
       "--remove") OPERATION="remove" ;;
       "-f"|"--force") FORCE="1" ;;
@@ -89,16 +92,17 @@ parse_arguments() {
           error "Please specify file for -l/--local."
           exit 22
         fi
+        shift
         break ;;
       *) error "Unknown option: $1"; exit 22 ;;
     esac
     shift
   done
-  [[ -z "$OPERATION" ]] && OPERATION="install"
+  [[ -z "${OPERATION:-}" ]] && OPERATION="install"
 }
 
 check_root() {
-  if [[ "$UID" -ne "0" ]]; then
+  if [[ $UID -ne 0 ]]; then
     error "Please run as root (use sudo)."
     exit 13
   fi
@@ -115,14 +119,10 @@ detect_arch() {
 download_binary() {
   local _version="$1" _dest="$2"
 
-  # Get latest version from GitHub releases if not specified
   if [[ -z "$_version" ]]; then
-    local _tmpfile="$(mktemp)"
-    if ! curl -sS "$RELEASES_URL" -o "$_tmpfile"; then
-      error "Failed to get releases list."
-      exit 11
-    fi
-    _version=$(grep -oP "/condercx/twin-server/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+" "$_tmpfile" | head -1 | grep -oP "v[0-9]+\.[0-9]+\.[0-9]+")
+    local _tmpfile; _tmpfile="$(mktemp)"
+    curl -sS "$RELEASES_URL" -o "$_tmpfile"
+    _version=$(grep -oP "/condercx/twin-server/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+" "$_tmpfile" | head -1 | grep -oP "v[0-9]+\.[0-9]+\.[0-9]+" || true)
     rm -f "$_tmpfile"
     if [[ -z "$_version" ]]; then
       error "No releases found."
@@ -132,10 +132,7 @@ download_binary() {
 
   local _url="$RELEASES_URL/download/$_version/twin-server-linux-$ARCH"
   echo "Downloading twin-server $_version ($ARCH) ..."
-  if ! curl -R "$_url" -o "$_dest"; then
-    error "Download failed."
-    exit 11
-  fi
+  curl -R "$_url" -o "$_dest"
   echo "ok"
 }
 
@@ -145,24 +142,26 @@ perform_install() {
   # 1. Install binary
   if [[ -n "$LOCAL_FILE" ]]; then
     echo -ne "Installing twin-server from $LOCAL_FILE ... "
-    install -Dm755 "$LOCAL_FILE" "$EXECUTABLE_INSTALL_PATH" && echo "ok"
+    install -Dm755 "$LOCAL_FILE" "$EXECUTABLE_INSTALL_PATH"
+    echo "ok"
   else
-    local _tmpfile="$(mktemp)"
+    local _tmpfile; _tmpfile="$(mktemp)"
     download_binary "" "$_tmpfile"
     echo -ne "Installing twin-server executable ... "
-    install -Dm755 "$_tmpfile" "$EXECUTABLE_INSTALL_PATH" && echo "ok"
+    install -Dm755 "$_tmpfile" "$EXECUTABLE_INSTALL_PATH"
+    echo "ok"
     rm -f "$_tmpfile"
   fi
 
   # 2. Create twin user
   if ! is_user_exists "twin"; then
     echo -ne "Creating twin user ... "
-    useradd -r -d /var/lib/twin -m twin && echo "ok"
+    useradd -r -d /var/lib/twin -m twin
+    echo "ok"
   fi
 
   # 3. Install openssl if needed
   if ! has_command openssl; then
-    echo "Installing openssl ..."
     install_software openssl
   fi
 
@@ -171,11 +170,12 @@ perform_install() {
   echo -ne "Generating self-signed TLS certificate ... "
   openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
     -days 36500 -keyout "$CONFIG_DIR/server.key" -out "$CONFIG_DIR/server.crt" \
-    -subj "/CN=bing.com" 2>/dev/null && echo "ok"
-  chown twin "$CONFIG_DIR/server.key" "$CONFIG_DIR/server.crt"
+    -subj "/CN=bing.com" 2>/dev/null
+  echo "ok"
+  chown -R twin "$CONFIG_DIR"
 
-  # 5. Generate config file
-  local _password="$(dd if=/dev/random bs=18 count=1 status=none | base64)"
+  # 5. Generate config file with random password
+  local _password; _password="$(dd if=/dev/random bs=18 count=1 status=none | base64)"
   cat > "$CONFIG_DIR/config.conf" <<- EOC
 # twin-server configuration
 listen = :8443
@@ -183,8 +183,11 @@ password = ${_password}
 cert = ${CONFIG_DIR}/server.crt
 key = ${CONFIG_DIR}/server.key
 EOC
-  chown -R twin "$CONFIG_DIR"
-  echo "Config file: $CONFIG_DIR/config.conf"
+
+  echo
+  echo "  Config:   $CONFIG_DIR/config.conf"
+  echo "  Password: $(red)${_password}$(reset)"
+  echo
 
   # 6. Install systemd service
   cat > "$SYSTEMD_SERVICES_DIR/twin-server.service" <<- EOS
@@ -205,14 +208,10 @@ WantedBy=multi-user.target
 EOS
   systemctl daemon-reload
 
-  # 7. Print success
-  echo
-  echo "$(tbold)----------------------------------------$(treset)"
-  echo "$(tbold)  Twin-server has been installed!$(treset)"
-  echo "$(tbold)----------------------------------------$(treset)"
-  echo
-  echo "  Config: $CONFIG_DIR/config.conf"
-  echo "  Password: $(tred)$_password$(treset)"
+  # 7. Done
+  echo "$(bold)----------------------------------------$(reset)"
+  echo "$(bold)  Twin-server has been installed!$(reset)"
+  echo "$(bold)----------------------------------------$(reset)"
   echo
   echo "  Start:   systemctl start twin-server"
   echo "  Status:  systemctl status twin-server -l"
@@ -225,18 +224,22 @@ EOS
 }
 
 perform_remove() {
-  echo -ne "Stopping twin-server ... "
-  systemctl stop twin-server 2>/dev/null && echo "ok" || echo "not running"
+  echo "Stopping twin-server ..."
+  systemctl stop twin-server 2>/dev/null || true
+  echo "ok"
 
-  echo -ne "Disabling twin-server ... "
-  systemctl disable twin-server 2>/dev/null && echo "ok" || true
+  echo "Disabling twin-server ..."
+  systemctl disable twin-server 2>/dev/null || true
+  echo "ok"
 
-  echo -ne "Removing binary ... "
-  rm -f "$EXECUTABLE_INSTALL_PATH" && echo "ok"
+  echo "Removing binary ..."
+  rm -f "$EXECUTABLE_INSTALL_PATH"
+  echo "ok"
 
-  echo -ne "Removing systemd service ... "
+  echo "Removing systemd service ..."
   rm -f "$SYSTEMD_SERVICES_DIR/twin-server.service"
-  systemctl daemon-reload && echo "ok"
+  systemctl daemon-reload 2>/dev/null || true
+  echo "ok"
 
   echo
   echo "twin-server removed."
@@ -251,9 +254,9 @@ main() {
   parse_arguments "$@"
   check_root
 
-  case "$OPERATION" in
+  case "${OPERATION}" in
     "install") perform_install ;;
-    "remove") perform_remove ;;
+    "remove")  perform_remove ;;
   esac
 }
 
