@@ -34,20 +34,34 @@ func main() {
 	}
 	port, _ := strconv.Atoi(portStr)
 
-	cfg := twin.Config{
-		ServerAddr: host,
-		ServerPort: port,
-		Password:   *password,
-		SkipCert:   *insecure,
-		SNI:        *sni,
-	}
+	cfg := twin.DefaultConfig()
+	cfg.ServerAddr = host
+	cfg.ServerPort = port
+	cfg.Password = *password
+	cfg.SkipCert = *insecure
+	cfg.SNI = *sni
+	cfg.UpBPS = 100 * 1000 * 1000   // 100 Mbps
+	cfg.DownBPS = 100 * 1000 * 1000 // 100 Mbps
 
 	client := twin.NewClient(&cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	fmt.Printf("connecting to twin server at %s:%d ...\n", host, port)
-	if err := client.Dial(ctx); err != nil {
+
+	udpAddr, err := net.ResolveUDPAddr("udp", *server)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve: %v\n", err)
+		os.Exit(1)
+	}
+	packetConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "udp conn: %v\n", err)
+		os.Exit(1)
+	}
+	defer packetConn.Close()
+
+	if err := client.Dial(ctx, packetConn, udpAddr); err != nil {
 		fmt.Fprintf(os.Stderr, "dial failed: %v\n", err)
 		os.Exit(1)
 	}
