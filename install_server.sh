@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # install_server.sh - twin-server install script
 #
@@ -149,6 +149,9 @@ ExecStart=$EXECUTABLE_INSTALL_PATH -conf $CONFIG_DIR/config.conf
 User=twin
 Group=twin
 NoNewPrivileges=true
+StandardOutput=null
+StandardError=null
+LogRateLimitIntervalSec=0
 LimitNOFILE=65536
 
 [Install]
