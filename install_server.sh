@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #
 # install_server.sh - twin-server install script
 #
@@ -115,7 +115,8 @@ perform_install() {
   fi
 
   # Generate certificate
-  mkdir -p "$CONFIG_DIR" /var/log/twin-server
+  mkdir -p /var/log/twin-server
+  mkdir -p "$CONFIG_DIR"
   echo -n "Generating self-signed TLS certificate ... "
   openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
     -days 36500 -keyout "$CONFIG_DIR/server.key" -out "$CONFIG_DIR/server.crt" \
@@ -151,9 +152,6 @@ Group=twin
 NoNewPrivileges=true
 StandardOutput=append:/var/log/twin-server/twin.log
 StandardError=append:/var/log/twin-server/twin.log
-
-
-
 LimitNOFILE=65536
 
 [Install]
@@ -205,18 +203,6 @@ perform_remove() {
 
   echo "Removing systemd service ..."
   rm -f /etc/systemd/system/twin-server.service
-/var/log/twin-server/*.log {
-    su twin twin
-    daily
-    rotate 3
-    maxsize 10M
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOL
   systemctl daemon-reload 2>/dev/null || true
   echo "  ok"
 
@@ -230,4 +216,5 @@ EOL
 }
 
 main "$@"
+
 
