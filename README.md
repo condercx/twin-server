@@ -99,9 +99,9 @@ userdel -r twin
 ```yaml
   - name: "twin-example"
     type: twin
-    server: 107.172.231.81
+    server: 1.1.1.1
     port: 8833
-    password: Qq9870219
+    password: 123456
     udp: true
     up: "1200 Mbps"
     down: "1200 Mbps"
