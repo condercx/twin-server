@@ -3,7 +3,7 @@ module github.com/condercx/twin-server
 go 1.22
 
 require (
-	github.com/condercx/twin-go v0.0.0-00010101000000-000000000000
+	github.com/condercx/twin-go v0.0.6
 	github.com/metacubex/tls v0.1.0
 )
 
