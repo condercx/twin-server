@@ -116,6 +116,7 @@ perform_install() {
 
   # Generate certificate
   mkdir -p /var/log/twin-server
+  touch /var/log/twin-server/twin.log
   mkdir -p "$CONFIG_DIR"
   echo -n "Generating self-signed TLS certificate ... "
   openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
@@ -150,27 +151,13 @@ ExecStart=$EXECUTABLE_INSTALL_PATH -conf $CONFIG_DIR/config.conf
 User=twin
 Group=twin
 NoNewPrivileges=true
-StandardOutput=append:/var/log/twin-server/twin.log
-StandardError=append:/var/log/twin-server/twin.log
+Restart=on-failure
+RestartSec=5
 LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
 EOS
-  # Install logrotate config
-  cat > /etc/logrotate.d/twin-server <<- EOL
-/var/log/twin-server/*.log {
-    su twin twin
-    daily
-    rotate 3
-    maxsize 10M
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOL
   systemctl daemon-reload 2>/dev/null || true
 
   echo ""
@@ -180,7 +167,8 @@ EOL
   echo ""
   echo "  Start:   systemctl start twin-server"
   echo "  Status:  systemctl status twin-server -l"
-  echo "  Enable:  systemctl enable twin-server"
+  # Enable on boot
+  systemctl enable twin-server 2>/dev/null || true
   echo "  Restart: systemctl restart twin-server"
   echo "  Logs:    journalctl -u twin-server -f"
   echo ""
