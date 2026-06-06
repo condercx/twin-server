@@ -146,8 +146,8 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=$EXECUTABLE_INSTALL_PATH -conf $CONFIG_DIR/config.conf
-User=twin
-Group=twin
+User=root
+Group=root
 NoNewPrivileges=true
 Restart=on-failure
 RestartSec=5

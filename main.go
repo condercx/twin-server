@@ -126,7 +126,7 @@ func runWithConfig(path string) {
 	}
 
 	fmt.Printf("[twin] server started with %d listener(s)\n", len(listeners))
-	<-make(chan struct{})
+	<-server.Done()
 }
 
 func startServer(listen, password string) {
@@ -147,5 +147,5 @@ func startServer(listen, password string) {
 	}
 
 	fmt.Printf("[twin] server listening on ws://%s\n", listen)
-	<-make(chan struct{})
+	<-server.Done()
 }
