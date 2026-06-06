@@ -4,12 +4,8 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"net"
 	"os"
-	"strconv"
 	"strings"
-
-	qtls "github.com/metacubex/tls"
 
 	twin "github.com/condercx/twin-go"
 )
@@ -17,10 +13,8 @@ import (
 var version = "dev"
 
 func main() {
-	listen := flag.String("listen", ":8443", "listen address")
+	listen := flag.String("listen", "", "listen address")
 	password := flag.String("password", "", "auth password")
-	certFile := flag.String("cert", "", "TLS cert file")
-	keyFile := flag.String("key", "", "TLS key file")
 	confFile := flag.String("conf", "", "config file path")
 	showVersion := flag.Bool("version", false, "show version")
 	flag.Parse()
@@ -39,12 +33,12 @@ func main() {
 		fmt.Println("error: --password is required")
 		os.Exit(1)
 	}
-	if *certFile == "" || *keyFile == "" {
-		fmt.Println("error: --cert and --key are required")
-		os.Exit(1)
+	if *listen == "" {
+		*listen = ":80"
+		fmt.Println("warning: no --listen specified, defaulting to :80")
 	}
 
-	startServer(*listen, *password, *certFile, *keyFile)
+	startServer(*listen, *password)
 }
 
 func runWithConfig(path string) {
@@ -55,12 +49,21 @@ func runWithConfig(path string) {
 	}
 	defer f.Close()
 
-	var listen, password, certFile, keyFile string
+	var password string
+	var listeners []twin.ListenerConfig
 
 	scanner := bufio.NewScanner(f)
+	var currentListener *twin.ListenerConfig
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == "[[listener]]" {
+			if currentListener != nil {
+				listeners = append(listeners, *currentListener)
+			}
+			currentListener = &twin.ListenerConfig{}
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
@@ -70,15 +73,28 @@ func runWithConfig(path string) {
 		key := strings.TrimSpace(parts[0])
 		val := strings.TrimSpace(parts[1])
 		switch key {
-		case "listen":
-			listen = val
 		case "password":
 			password = val
+		case "listen":
+			if currentListener != nil {
+				currentListener.Listen = val
+			}
+		case "tls":
+			if currentListener != nil {
+				currentListener.TLSMode = twin.TLSMode(val)
+			}
 		case "cert":
-			certFile = val
+			if currentListener != nil {
+				currentListener.CertFile = val
+			}
 		case "key":
-			keyFile = val
+			if currentListener != nil {
+				currentListener.KeyFile = val
+			}
 		}
+	}
+	if currentListener != nil {
+		listeners = append(listeners, *currentListener)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -86,49 +102,50 @@ func runWithConfig(path string) {
 		os.Exit(1)
 	}
 
-	if listen == "" {
-		listen = ":8443"
-	}
 	if password == "" {
 		fmt.Println("error: password not set in config")
 		os.Exit(1)
 	}
-	if certFile == "" || keyFile == "" {
-		fmt.Println("error: cert and key must be set in config")
+	if len(listeners) == 0 {
+		fmt.Println("error: no [[listener]] blocks found in config")
 		os.Exit(1)
 	}
 
-	startServer(listen, password, certFile, keyFile)
-}
-
-func startServer(listen, password, certFile, keyFile string) {
-	cert, err := qtls.LoadX509KeyPair(certFile, keyFile)
+	cfg := twin.ServerConfig{
+		Password:  password,
+		Listeners: listeners,
+	}
+	server, err := twin.NewServer(&cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load cert: %v\n", err)
+		fmt.Fprintf(os.Stderr, "create server: %v\n", err)
 		os.Exit(1)
 	}
-
-	host, portStr, err := net.SplitHostPort(listen)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "parse listen addr: %v\n", err)
-		os.Exit(1)
-	}
-	port, _ := strconv.Atoi(portStr)
-
-	cfg := twin.Config{
-		ServerAddr: host,
-		ServerPort: port,
-		Password:   password,
-	}
-	cfg.TLSCert = cert
-
-	fmt.Printf("[twin] twin server listening on %s\n", listen)
-	server := twin.NewServer(&cfg)
 	if err := server.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "start: %v\n", err)
+		fmt.Fprintf(os.Stderr, "start server: %v\n", err)
 		os.Exit(1)
 	}
 
+	fmt.Printf("[twin] server started with %d listener(s)\n", len(listeners))
 	<-make(chan struct{})
 }
 
+func startServer(listen, password string) {
+	cfg := twin.ServerConfig{
+		Password: password,
+		Listeners: []twin.ListenerConfig{
+			{Listen: listen, TLSMode: twin.TLSModeWS},
+		},
+	}
+	server, err := twin.NewServer(&cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create server: %v\n", err)
+		os.Exit(1)
+	}
+	if err := server.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "start server: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("[twin] server listening on ws://%s\n", listen)
+	<-make(chan struct{})
+}

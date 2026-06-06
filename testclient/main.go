@@ -6,20 +6,22 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	twin "github.com/condercx/twin-go"
 )
 
 func main() {
-	server := flag.String("server", "127.0.0.1:8443", "twin server address")
+	server := flag.String("server", "127.0.0.1:80", "server address")
 	password := flag.String("password", "", "auth password")
-	insecure := flag.Bool("insecure", true, "skip TLS cert verification")
-	sni := flag.String("sni", "", "TLS SNI override")
-	target := flag.String("target", "https://www.google.com", "URL to fetch through twin")
+	target := flag.String("target", "https://www.baidu.com", "test target")
+	tlsMode := flag.String("tls", "ws", "tls mode: ws or wss")
+	sni := flag.String("sni", "", "TLS SNI (wss only)")
+	insecure := flag.Bool("insecure", false, "skip cert verify (wss only)")
+	ipsStr := flag.String("ips", "", "comma-separated IPs for NetDial")
 	flag.Parse()
 
 	if *password == "" {
@@ -27,88 +29,94 @@ func main() {
 		os.Exit(1)
 	}
 
-	host, portStr, err := net.SplitHostPort(*server)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "parse server addr: %v\n", err)
-		os.Exit(1)
+	addr := *server
+	port := 80
+	if h, p, err := net.SplitHostPort(addr); err == nil {
+		addr = h
+		if p != "" {
+			if parsed, e := strconv.Atoi(p); e == nil {
+				port = parsed
+			}
+		}
 	}
-	port, _ := strconv.Atoi(portStr)
-
-	cfg := twin.DefaultConfig()
-	cfg.ServerAddr = host
-	cfg.ServerPort = port
-	cfg.Password = *password
-	cfg.SkipCert = *insecure
-	cfg.SNI = *sni
-	cfg.UpBPS = 100 * 1000 * 1000   // 100 Mbps
-	cfg.DownBPS = 100 * 1000 * 1000 // 100 Mbps
-
-	client := twin.NewClient(&cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	fmt.Printf("connecting to twin server at %s:%d ...\n", host, port)
-
-	udpAddr, err := net.ResolveUDPAddr("udp", *server)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "resolve: %v\n", err)
-		os.Exit(1)
+	tlsModeStr := *tlsMode
+	if tlsModeStr == "" {
+		tlsModeStr = "ws"
 	}
-	packetConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "udp conn: %v\n", err)
-		os.Exit(1)
-	}
-	defer packetConn.Close()
 
-	if err := client.Dial(ctx, packetConn, udpAddr); err != nil {
-		fmt.Fprintf(os.Stderr, "dial failed: %v\n", err)
+	var proxyIPs []string
+	if *ipsStr != "" {
+		for _, ip := range strings.Split(*ipsStr, ",") {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				proxyIPs = append(proxyIPs, ip)
+			}
+		}
+	}
+
+	cfg := twin.ClientConfig{
+		ServerAddr:   addr,
+		ServerPort:   port,
+		Password:     *password,
+		TLSMode:      twin.TLSMode(tlsModeStr),
+		SNI:          *sni,
+		Insecure:     *insecure,
+		ConnCount:    2,
+		ProxyIPs:     proxyIPs,
+	}
+
+	client, err := twin.NewClient(&cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create client: %v\n", err)
 		os.Exit(1)
 	}
 	defer client.Close()
-	fmt.Println("connected!")
 
-	fmt.Printf("fetching %s through twin ...\n", *target)
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				stream, err := client.DialTCP(ctx, addr)
-				if err != nil {
-					return nil, err
-				}
-				return &streamConn{rc: stream}, nil
-			},
-		},
-		Timeout: 15 * time.Second,
-	}
+	fmt.Printf("[testclient] connected to ws://%s\n", *server)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", *target, nil)
+	fmt.Printf("[testclient] testing TCP: %s\n", *target)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := client.DialTCP(ctx, *target)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "http request: %v\n", err)
+		fmt.Fprintf(os.Stderr, "TCP dial failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "http get: %v\n", err)
+	req := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", *target)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		fmt.Fprintf(os.Stderr, "TCP write failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
 
-	fmt.Printf("HTTP %s\n", resp.Status)
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	fmt.Printf("body (%d bytes):\n%s\n", len(body), string(body))
+	resp, _ := io.ReadAll(conn)
+	fmt.Printf("[testclient] TCP response: %d bytes\n", len(resp))
+	conn.Close()
+
+	fmt.Println("[testclient] testing UDP: DNS")
+	pc, err := client.ListenPacket()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ListenPacket failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer pc.Close()
+
+	dnsQuery := []byte{0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01}
+	dnsAddr, _ := net.ResolveUDPAddr("udp", "8.8.8.8:53")
+	pc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if _, err := pc.WriteTo(dnsQuery, dnsAddr); err != nil {
+		fmt.Fprintf(os.Stderr, "UDP write failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	buf := make([]byte, 512)
+	pc.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, _, err := pc.ReadFrom(buf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "UDP read failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("[testclient] UDP response: %d bytes\n", n)
+
+	fmt.Println("[testclient] all tests passed!")
 }
-
-type streamConn struct {
-	rc io.ReadWriteCloser
-}
-
-func (c *streamConn) Read(b []byte) (int, error)  { return c.rc.Read(b) }
-func (c *streamConn) Write(b []byte) (int, error) { return c.rc.Write(b) }
-func (c *streamConn) Close() error                { return c.rc.Close() }
-func (c *streamConn) LocalAddr() net.Addr          { return nil }
-func (c *streamConn) RemoteAddr() net.Addr         { return nil }
-func (c *streamConn) SetDeadline(t time.Time) error      { return nil }
-func (c *streamConn) SetReadDeadline(t time.Time) error  { return nil }
-func (c *streamConn) SetWriteDeadline(t time.Time) error { return nil }

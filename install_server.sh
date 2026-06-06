@@ -11,6 +11,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 EXECUTABLE_INSTALL_PATH="/usr/local/bin/twin-server"
 CONFIG_DIR="/etc/twin-server"
+LOG_DIR="/var/log/twin-server"
 RELEASES_URL="https://github.com/condercx/twin-server/releases"
 RAW_URL="https://raw.githubusercontent.com/condercx/twin-server/main/install_server.sh"
 
@@ -75,7 +76,6 @@ perform_install() {
     _tmpfile=$(mktemp /tmp/twinservinst.XXXXXXXXXX) || { echo "mktemp failed"; exit 1; }
     trap "rm -f $_tmpfile" EXIT
 
-    # Get latest version
     local _version
     _version=$(curl -sSL "$RELEASES_URL" | grep -oP "/condercx/twin-server/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+" | head -1 | grep -oP "v[0-9]+\.[0-9]+\.[0-9]+")
     if [[ -z "$_version" ]]; then
@@ -86,7 +86,7 @@ perform_install() {
 
     local _url="$RELEASES_URL/download/$_version/twin-server-linux-$ARCH"
     echo -n "Downloading ... "
-    curl -sSL -R "$_url" -o "$_tmpfile" || { echo "download failed" >&2; exit 1; }
+    curl -fsSL -R "$_url" -o "$_tmpfile" || { echo "download failed" >&2; exit 1; }
     echo "ok"
 
     echo -n "Installing to $EXECUTABLE_INSTALL_PATH ... "
@@ -103,41 +103,39 @@ perform_install() {
     echo "ok"
   fi
 
-  # Install openssl if needed
-  if ! command -v openssl &>/dev/null; then
-    if command -v apt &>/dev/null; then
-      apt update && apt install -y openssl || { echo "openssl install failed"; exit 1; }
-    elif command -v dnf &>/dev/null; then
-      dnf install -y openssl || { echo "openssl install failed"; exit 1; }
-    else
-      echo "Warning: openssl not found, please install it manually"
-    fi
-  fi
-
-  # Generate certificate
-  mkdir -p /var/log/twin-server
-  touch /var/log/twin-server/twin.log
+  # Create directories
+  mkdir -p "$LOG_DIR"
+  touch "$LOG_DIR/twin.log"
   mkdir -p "$CONFIG_DIR"
-  echo -n "Generating self-signed TLS certificate ... "
-  openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-    -days 36500 -keyout "$CONFIG_DIR/server.key" -out "$CONFIG_DIR/server.crt" \
-    -subj "/CN=bing.com" 2>/dev/null
-  echo "ok"
-  chown -R twin "$CONFIG_DIR"
 
-  # Generate config
+  # Generate random password
   local _password
-  _password=$(dd if=/dev/random bs=18 count=1 status=none | base64)
+  _password=$(dd if=/dev/random bs=18 count=1 status=none | base64 | tr -d '\n')
   cat > "$CONFIG_DIR/config.conf" <<- EOC
 # twin-server configuration
-listen = :8443
 password = ${_password}
-cert = ${CONFIG_DIR}/server.crt
-key = ${CONFIG_DIR}/server.key
+
+[[listener]]
+listen = :80
+tls = ws
 EOC
 
   echo "Config:   $CONFIG_DIR/config.conf"
   echo "Password: $_password"
+
+  # Install logrotate config
+  cat > /etc/logrotate.d/twin-server <<- EOL
+$LOG_DIR/twin.log {
+    daily
+    rotate 3
+    maxsize 10M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOL
 
   # Install systemd service
   cat > /etc/systemd/system/twin-server.service <<- EOS
@@ -160,6 +158,9 @@ WantedBy=multi-user.target
 EOS
   systemctl daemon-reload 2>/dev/null || true
 
+  # Set permissions
+  chown -R twin "$CONFIG_DIR" "$LOG_DIR" 2>/dev/null || true
+
   echo ""
   echo "========================================"
   echo "  Twin-server installed!"
@@ -167,10 +168,10 @@ EOS
   echo ""
   echo "  Start:   systemctl start twin-server"
   echo "  Status:  systemctl status twin-server -l"
-  # Enable on boot
-  systemctl enable twin-server 2>/dev/null || true
   echo "  Restart: systemctl restart twin-server"
-  echo "  Logs:    journalctl -u twin-server -f"
+  systemctl enable twin-server 2>/dev/null || true
+  echo "  Logs:    tail -f $LOG_DIR/twin.log"
+  echo "  Password: $_password"
   echo ""
   echo "  Remove:  curl -fsSL $RAW_URL | bash -s -- --remove"
   echo ""
@@ -194,15 +195,18 @@ perform_remove() {
   systemctl daemon-reload 2>/dev/null || true
   echo "  ok"
 
+  echo "Removing logrotate config ..."
+  rm -f /etc/logrotate.d/twin-server
+  echo "  ok"
+
   echo ""
   echo "twin-server has been removed."
   echo ""
   echo "You may also want to remove:"
   echo "  rm -rf $CONFIG_DIR"
+  echo "  rm -rf $LOG_DIR"
   echo "  userdel -r twin"
   echo ""
 }
 
 main "$@"
-
-
